@@ -21,9 +21,9 @@ anvil                # start a local chain (separate terminal)
 ## Status
 
 - ✅ **Phase 0** — Foundry environment setup, tooling, local deploy loop
-- ⬜ Phase 1 — `MockUSDC` + `TBillToken` (ERC-20 + AccessControl)
-- ⬜ Phase 2 — `Whitelist` compliance layer (permissioned transfers)
-- ⬜ Phase 3 — `Vault` (deposit / redeem / NAV accounting)
-- ⬜ Phase 4 — yield accrual
+- ✅ **Phase 1** — `MockUSDC` + `TBillToken` (ERC-20 + AccessControl)
+- ✅ **Phase 2** — `Whitelist` compliance layer (permissioned transfers)
+- ✅ **Phase 3** — `Vault` (deposit / redeem / NAV accounting)
+- ✅ **Phase 4** — yield accrual (manual `accrueYield` + time-based continuous accrual with lazy settlement)
 - ⬜ Phase 5 — Next.js frontend, deploy to Sepolia
 - ⬜ Phase 6 — Slither hardening + writeup

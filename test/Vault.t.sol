@@ -31,6 +31,10 @@ contract VaultTest is Test {
         // The vault must hold VAULT_ROLE on the token so it can mint/burn shares.
         token.grantRole(token.VAULT_ROLE(), address(vault));
 
+        // Phase 4: the vault mints simulated interest into itself, so it needs MINTER_ROLE
+        // on the asset token.
+        usdc.grantRole(usdc.MINTER_ROLE(), address(vault));
+
         // Phase 2 gate: every address that will HOLD sgTBILL must be whitelisted.
         // That includes the users (they receive shares on deposit).
         whitelist.addToWhitelist(alice);
@@ -182,6 +186,156 @@ contract VaultTest is Test {
 
         // She redeems all 100 shares at NAV 1.10 → ~110 USDC (she's the only holder).
         assertEq(usdc.balanceOf(alice) - before, 110 * ONE_USDC);
+    }
+
+    // ---------------------------------------------------------------------
+    // Phase 4 — time-based continuous accrual
+    // ---------------------------------------------------------------------
+
+    uint256 constant BPS = 10_000;
+
+    // Only YIELD_ADMIN_ROLE can change the rate.
+    function test_SetYieldRateNonAdminReverts() public {
+        // Read the role BEFORE pranking — evaluating vault.YIELD_ADMIN_ROLE() as an argument
+        // is itself an external call and would consume the prank (same trap as Phase 3).
+        bytes32 role = vault.YIELD_ADMIN_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role));
+        vm.prank(alice);
+        vault.setYieldRate(500);
+    }
+
+    // Time passes, then someone deposits: the deposit must be priced AFTER settlement,
+    // so totalAssets() already includes the accrued interest when shares are computed.
+    function test_DepositSettlesPendingYieldFirst() public {
+        _deposit(alice, 100 * ONE_USDC);
+        vault.setYieldRate(500); // 5% APY
+
+        vm.warp(block.timestamp + 365 days);
+
+        // Nothing minted yet — accrual is lazy, so the stored balance is still 100.
+        assertEq(vault.totalAssets(), 100 * ONE_USDC);
+        uint256 expectedYield = (100 * ONE_USDC * 500 * uint256(365 days)) / (BPS * uint256(365 days));
+        assertEq(vault.pendingYield(), expectedYield); // 5 USDC
+
+        // Bob's deposit triggers settlement first.
+        _deposit(bob, 100 * ONE_USDC);
+
+        // 100 principal + 5 yield + 100 from Bob.
+        assertEq(vault.totalAssets(), 205 * ONE_USDC);
+
+        // Bob was priced at the risen NAV (1.05), so he got fewer than 100 shares.
+        assertLt(token.balanceOf(bob), 100 * ONE_SHARE);
+    }
+
+    // 5% APY held for exactly one year ≈ 5% NAV increase.
+    function test_NavRisesProportionallyToElapsedTime() public {
+        _deposit(alice, 100 * ONE_USDC);
+        vault.setYieldRate(500);
+        assertEq(vault.navPerToken(), 1e18);
+
+        vm.warp(block.timestamp + 365 days);
+
+        // navPerToken() is a view and does NOT settle — still reads 1.00 until someone acts.
+        assertEq(vault.navPerToken(), 1e18);
+
+        // Any settling call realizes it; setYieldRate to the same value works as a poke.
+        vault.setYieldRate(500);
+
+        // 100 USDC -> 105 USDC against an unchanged 100e18 supply -> NAV 1.05.
+        assertEq(vault.totalAssets(), 105 * ONE_USDC);
+        assertEq(vault.navPerToken(), 1.05e18);
+    }
+
+    // Half a year at 5% ≈ 2.5%, showing accrual is linear in elapsed time.
+    function test_NavRisesProRataForPartialYear() public {
+        _deposit(alice, 100 * ONE_USDC);
+        vault.setYieldRate(500);
+
+        vm.warp(block.timestamp + 182.5 days);
+        vault.setYieldRate(500);
+
+        assertEq(vault.totalAssets(), 102.5 * 1e6); // 100 + 2.5
+    }
+
+    // Changing the rate mid-flight must settle the old rate's window first.
+    function test_RateChangeSettlesAtOldRateFirst() public {
+        _deposit(alice, 100 * ONE_USDC);
+
+        // Window 1: 5% APY for a year -> +5 USDC.
+        vault.setYieldRate(500);
+        vm.warp(block.timestamp + 365 days);
+
+        // Window 2 begins at 10%. This call settles window 1 at the OLD 5% rate.
+        vault.setYieldRate(1000);
+        assertEq(vault.totalAssets(), 105 * ONE_USDC);
+
+        // A year at 10% on the new 105 base -> +10.5 USDC.
+        vm.warp(block.timestamp + 365 days);
+        vault.setYieldRate(1000);
+        assertEq(vault.totalAssets(), 115.5 * 1e6);
+
+        // Had the 10% rate been applied retroactively to window 1, we'd have seen
+        // 100 -> 110 -> 121. It didn't, which is the point of settling before switching.
+    }
+
+    // A holder who does nothing but wait gets paid on redeem, with no manual accrueYield().
+    function test_RedeemSettlesYieldWithoutManualAccrual() public {
+        uint256 before = usdc.balanceOf(alice);
+
+        _deposit(alice, 100 * ONE_USDC);
+        vault.setYieldRate(500);
+
+        vm.warp(block.timestamp + 365 days);
+
+        uint256 aliceShares = token.balanceOf(alice);
+        vm.prank(alice);
+        vault.redeem(aliceShares);
+
+        // Sole holder: she gets principal + the full year of accrued yield.
+        assertEq(usdc.balanceOf(alice), before + 5 * ONE_USDC);
+        assertEq(token.balanceOf(alice), 0);
+    }
+
+    // Two settlements in the same block: elapsed == 0, so no double-count and no revert.
+    function test_ZeroElapsedAccruesNothing() public {
+        _deposit(alice, 100 * ONE_USDC);
+        vault.setYieldRate(500);
+        vm.warp(block.timestamp + 365 days);
+
+        vault.setYieldRate(500); // settles -> 105
+        assertEq(vault.totalAssets(), 105 * ONE_USDC);
+
+        // Same block, no time passed. Must be a no-op, not a repeat payout.
+        vault.setYieldRate(500);
+        vault.setYieldRate(500);
+        assertEq(vault.totalAssets(), 105 * ONE_USDC);
+        assertEq(vault.pendingYield(), 0);
+    }
+
+    // With the rate at zero (the default), time alone accrues nothing.
+    function test_NoYieldWhenRateIsZero() public {
+        _deposit(alice, 100 * ONE_USDC);
+
+        vm.warp(block.timestamp + 365 days);
+        assertEq(vault.pendingYield(), 0);
+
+        _deposit(bob, 100 * ONE_USDC); // settles, but rate is 0
+        assertEq(vault.totalAssets(), 200 * ONE_USDC);
+        assertEq(vault.navPerToken(), 1e18);
+    }
+
+    // An idle window at rate 0 must not be paid retroactively once a rate is set.
+    function test_IdleWindowNotPaidRetroactively() public {
+        _deposit(alice, 100 * ONE_USDC);
+
+        vm.warp(block.timestamp + 365 days); // a year at 0%
+
+        vault.setYieldRate(500); // stamps the clock; pays nothing for the idle year
+        assertEq(vault.totalAssets(), 100 * ONE_USDC);
+
+        vm.warp(block.timestamp + 365 days); // a year at 5%
+        vault.setYieldRate(500);
+        assertEq(vault.totalAssets(), 105 * ONE_USDC); // one year's yield, not two
     }
 
     // ---------------------------------------------------------------------
