@@ -8,11 +8,12 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 contract TBillToken is ERC20, AccessControl {
     bytes32 public constant VAULT_ROLE = keccak256("VAULT_ROLE");
 
-    Whitelist public whitelist;
+    Whitelist public immutable whitelist;
 
     error NotWhitelisted(address account);
 
     constructor(address whitelistAddress) ERC20("sgTBILL", "sgTBILL") {
+        require(whitelistAddress != address(0), "zero whitelist");
         whitelist = Whitelist(whitelistAddress);
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }

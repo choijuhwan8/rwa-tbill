@@ -210,7 +210,7 @@ contract VaultTest is Test {
         _deposit(alice, 100 * ONE_USDC);
         vault.setYieldRate(500); // 5% APY
 
-        vm.warp(block.timestamp + 365 days);
+        skip(365 days);
 
         // Nothing minted yet — accrual is lazy, so the stored balance is still 100.
         assertEq(vault.totalAssets(), 100 * ONE_USDC);
@@ -233,7 +233,7 @@ contract VaultTest is Test {
         vault.setYieldRate(500);
         assertEq(vault.navPerToken(), 1e18);
 
-        vm.warp(block.timestamp + 365 days);
+        skip(365 days);
 
         // navPerToken() is a view and does NOT settle — still reads 1.00 until someone acts.
         assertEq(vault.navPerToken(), 1e18);
@@ -251,7 +251,7 @@ contract VaultTest is Test {
         _deposit(alice, 100 * ONE_USDC);
         vault.setYieldRate(500);
 
-        vm.warp(block.timestamp + 182.5 days);
+        skip(182.5 days);
         vault.setYieldRate(500);
 
         assertEq(vault.totalAssets(), 102.5 * 1e6); // 100 + 2.5
@@ -263,14 +263,14 @@ contract VaultTest is Test {
 
         // Window 1: 5% APY for a year -> +5 USDC.
         vault.setYieldRate(500);
-        vm.warp(block.timestamp + 365 days);
+        skip(365 days);
 
         // Window 2 begins at 10%. This call settles window 1 at the OLD 5% rate.
         vault.setYieldRate(1000);
         assertEq(vault.totalAssets(), 105 * ONE_USDC);
 
         // A year at 10% on the new 105 base -> +10.5 USDC.
-        vm.warp(block.timestamp + 365 days);
+        skip(365 days);
         vault.setYieldRate(1000);
         assertEq(vault.totalAssets(), 115.5 * 1e6);
 
@@ -285,7 +285,7 @@ contract VaultTest is Test {
         _deposit(alice, 100 * ONE_USDC);
         vault.setYieldRate(500);
 
-        vm.warp(block.timestamp + 365 days);
+        skip(365 days);
 
         uint256 aliceShares = token.balanceOf(alice);
         vm.prank(alice);
@@ -300,7 +300,7 @@ contract VaultTest is Test {
     function test_ZeroElapsedAccruesNothing() public {
         _deposit(alice, 100 * ONE_USDC);
         vault.setYieldRate(500);
-        vm.warp(block.timestamp + 365 days);
+        skip(365 days);
 
         vault.setYieldRate(500); // settles -> 105
         assertEq(vault.totalAssets(), 105 * ONE_USDC);
@@ -316,7 +316,7 @@ contract VaultTest is Test {
     function test_NoYieldWhenRateIsZero() public {
         _deposit(alice, 100 * ONE_USDC);
 
-        vm.warp(block.timestamp + 365 days);
+        skip(365 days);
         assertEq(vault.pendingYield(), 0);
 
         _deposit(bob, 100 * ONE_USDC); // settles, but rate is 0
@@ -328,12 +328,12 @@ contract VaultTest is Test {
     function test_IdleWindowNotPaidRetroactively() public {
         _deposit(alice, 100 * ONE_USDC);
 
-        vm.warp(block.timestamp + 365 days); // a year at 0%
+        skip(365 days); // a year at 0%
 
         vault.setYieldRate(500); // stamps the clock; pays nothing for the idle year
         assertEq(vault.totalAssets(), 100 * ONE_USDC);
 
-        vm.warp(block.timestamp + 365 days); // a year at 5%
+        skip(365 days); // a year at 5%
         vault.setYieldRate(500);
         assertEq(vault.totalAssets(), 105 * ONE_USDC); // one year's yield, not two
     }
