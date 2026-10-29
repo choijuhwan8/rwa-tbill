@@ -14,6 +14,7 @@ import {Vault} from "../src/Vault.sol";
 ///      Optional env vars:
 ///        YIELD_BPS  annual yield rate in basis points (default 500 == 5.00%)
 ///        WHITELIST  comma-separated extra addresses to whitelist (the deployer is always added)
+///        SELF_SERVICE  enable demo self-KYC so visitors can whitelist themselves (default true)
 contract Deploy is Script {
     uint256 internal constant DEFAULT_YIELD_BPS = 500;
 
@@ -33,11 +34,15 @@ contract Deploy is Script {
     function run() external returns (Deployment memory d) {
         uint256 yieldBps = vm.envOr("YIELD_BPS", DEFAULT_YIELD_BPS);
         address[] memory extra = vm.envOr("WHITELIST", ",", new address[](0));
+        bool selfService = vm.envOr("SELF_SERVICE", true);
 
         vm.startBroadcast();
-        // Inside a broadcast, msg.sender is the broadcasting EOA, so the EOA (not this
-        // script contract) ends up holding every admin role.
-        d = deploy(msg.sender, yieldBps, extra);
+        // Ask Foundry who is actually broadcasting (the --account / --private-key wallet).
+        // Reading msg.sender here is wrong: without --sender it is Foundry's default caller,
+        // and forge aborts the script. The broadcaster ends up holding every admin role.
+        (, address deployer,) = vm.readCallers();
+        d = deploy(deployer, yieldBps, extra);
+        if (selfService) d.whitelist.setSelfService(true);
         vm.stopBroadcast();
 
         _log(d);

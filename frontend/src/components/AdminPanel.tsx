@@ -12,7 +12,9 @@ import { Button, Card, Input, TxStatus } from "./ui";
 
 function WhitelistAdmin() {
   const d = useDeployment()!;
+  const f = useFund();
   const tx = useTx();
+  const toggle = useTx();
   const [addr, setAddr] = useState("");
   const valid = isAddress(addr);
 
@@ -39,6 +41,30 @@ function WhitelistAdmin() {
         </Button>
       </div>
       <TxStatus state={tx.state} />
+      <label className="mt-4 flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={!!f.selfService}
+          disabled={f.selfService === undefined || toggle.busy}
+          onChange={(e) =>
+            toggle.run([
+              {
+                label: e.target.checked ? "Enable self-service" : "Disable self-service",
+                send: (w) =>
+                  w({
+                    address: d.whitelist,
+                    abi: whitelistAbi,
+                    functionName: "setSelfService",
+                    args: [e.target.checked],
+                  }),
+              },
+            ])
+          }
+        />
+        Self-service demo KYC
+      </label>
+      <p className="mt-0.5 text-xs text-muted">Lets visitors whitelist themselves. Removed addresses stay blocked.</p>
+      <TxStatus state={toggle.state} />
     </div>
   );
 }

@@ -39,11 +39,13 @@ export function useFund() {
       { ...vault, functionName: "lastAccrualTimestamp" },
       { ...vault, functionName: "paused" },
       { ...vault, functionName: "MAX_YIELD_BPS" },
+      { address: d?.whitelist ?? zeroAddress, abi: whitelistAbi, functionName: "selfServiceEnabled" },
     ],
     query: { enabled: !!d, refetchInterval: REFRESH_MS },
   });
 
-  const [totalAssets, totalSupply, nav, pendingYield, rateBps, lastAccrual, paused, maxRateBps] = q.data ?? [];
+  const [totalAssets, totalSupply, nav, pendingYield, rateBps, lastAccrual, paused, maxRateBps, selfService] =
+    q.data ?? [];
 
   // navPerToken() only reflects *settled* yield. Adding pendingYield gives the NAV a
   // redeemer would actually get if they transacted in the latest block.
@@ -54,7 +56,19 @@ export function useFund() {
         : ((totalAssets + pendingYield) * SCALE * PRECISION) / totalSupply
       : undefined;
 
-  return { ...q, totalAssets, totalSupply, nav, liveNav, pendingYield, rateBps, lastAccrual, paused, maxRateBps };
+  return {
+    ...q,
+    totalAssets,
+    totalSupply,
+    nav,
+    liveNav,
+    pendingYield,
+    rateBps,
+    lastAccrual,
+    paused,
+    maxRateBps,
+    selfService,
+  };
 }
 
 /** Connected-wallet state. */
@@ -83,12 +97,25 @@ export function usePosition() {
       },
       { address: d?.vault ?? zeroAddress, abi: vaultAbi, functionName: "hasRole", args: [YIELD_ADMIN_ROLE, account] },
       { address: d?.vault ?? zeroAddress, abi: vaultAbi, functionName: "hasRole", args: [PAUSER_ROLE, account] },
+      { address: d?.whitelist ?? zeroAddress, abi: whitelistAbi, functionName: "isRevoked", args: [account] },
     ],
     query: { enabled: !!d && !!address, refetchInterval: REFRESH_MS },
   });
 
-  const [usdcBalance, shareBalance, allowance, isWhitelisted, isCompliance, isYieldAdmin, isPauser] = q.data ?? [];
-  return { ...q, address, usdcBalance, shareBalance, allowance, isWhitelisted, isCompliance, isYieldAdmin, isPauser };
+  const [usdcBalance, shareBalance, allowance, isWhitelisted, isCompliance, isYieldAdmin, isPauser, isRevoked] =
+    q.data ?? [];
+  return {
+    ...q,
+    address,
+    usdcBalance,
+    shareBalance,
+    allowance,
+    isWhitelisted,
+    isCompliance,
+    isYieldAdmin,
+    isPauser,
+    isRevoked,
+  };
 }
 
 type Write = ReturnType<typeof useWriteContract<typeof config>>["writeContractAsync"];

@@ -5,6 +5,7 @@ Phase 6 self-review of the sgTBILL contracts: static analysis (Slither, forge li
 | | |
 |---|---|
 | Scope | `src/Vault.sol`, `src/TBillToken.sol`, `src/Whitelist.sol`, `src/MockUSDC.sol`, `script/Deploy.s.sol` |
+| Deployment | Sepolia, Vault [`0x059ceC26…34757`](https://sepolia.etherscan.io/address/0x059ceC26fF534Ea25A86eb77cE75918a25234757#code), all contracts source-verified |
 | Compiler | solc 0.8.24, optimizer 200 runs |
 | Dependencies | OpenZeppelin Contracts v5.6.1, forge-std v1.16.2 |
 | Tools | Slither 0.11.6 (102 detectors), Foundry 1.8.6 (`forge lint`, fuzzing, invariant testing, coverage) |
@@ -22,11 +23,12 @@ Phase 6 self-review of the sgTBILL contracts: static analysis (Slither, forge li
 | F-7 | `TBillToken.whitelist` not immutable | Gas | **Fixed** |
 | F-8 | Centralisation: single EOA holds every admin role | Informational | Acknowledged (see recommendations) |
 | F-9 | De-whitelisted holders cannot redeem | Informational | By design (documented) |
+| F-10 | Self-service demo KYC bypasses identity checks | Informational | By design for testnet; off by default, admin-switchable |
 
 Results:
 
 - **Slither:** 9 findings at the start of Phase 6, 0 now. Every remaining suppression is annotated inline with its reason.
-- **Tests:** 61, including 4 fuzz tests and 4 stateful invariants (~128k random calls per run, zero reverts).
+- **Tests:** 68, including 4 fuzz tests and 4 stateful invariants (~128k random calls per run, zero reverts).
 - **Coverage:** 100% of lines, statements and functions in `src/`, and 88% of branches.
 
 ---
@@ -98,6 +100,16 @@ The deployer EOA holds `DEFAULT_ADMIN_ROLE`, `COMPLIANCE_ROLE`, `YIELD_ADMIN_ROL
 
 `TBillToken._update` checks the whitelist on burns too. A holder removed from the whitelist therefore can't redeem, and their position is effectively frozen. That is the intended compliance behaviour (e.g. a sanctions hit). A production fund would also need a privileged forced-redemption or forced-transfer path, as in ERC-3643 `forcedTransfer`, so the issuer can return funds to a frozen investor's verified account.
 
+### F-10 — Self-service demo KYC bypasses identity checks (Informational) — By design
+
+`Whitelist.selfWhitelist()` lets any caller whitelist themselves while `selfServiceEnabled` is true. That deliberately skips KYC, so the testnet dApp works for graders and visitors without an operator online. The guardrails:
+
+- **Off by default** in the contract. `script/Deploy.s.sol` switches it on (`SELF_SERVICE=false` keeps it off), and only `COMPLIANCE_ROLE` can toggle it.
+- **Removals stick.** `removeFromWhitelist` sets `isRevoked`, and a revoked address can't self-whitelist again. Only compliance can re-admit it, which also clears the flag.
+- **Transfer gating is unchanged.** Every mint, burn and transfer still requires both parties to be whitelisted.
+
+In production this function wouldn't exist: an off-chain KYC provider or a verifiable credential (as with ERC-3643 identity registries) would gate `addToWhitelist`.
+
 ---
 
 ## Static analysis
@@ -130,7 +142,7 @@ The remaining notes are informational and covered above: `block-timestamp` (acce
 | `Vault.t.sol` | 19 | NAV maths, deposit/redeem, decimals scaling, manual and time-based yield, rate-change settlement, reentrancy (malicious token) |
 | `VaultHardening.t.sol` | 13 | Pause, rate cap, constructor validation, fuzz: round trip never profits, split redemption no better than whole, donation attack bounded, F-2 reproduction and fix |
 | `TBillToken.t.sol` | 11 | Role-gated mint/burn, whitelist enforcement on mint, transfer and burn |
-| `Whitelist.t.sol` | 8 | Add/remove, events, duplicate guards, role gating, role delegation |
+| `Whitelist.t.sol` | 15 | Add/remove, events, duplicate guards, role gating, role delegation, self-service demo KYC (off by default, toggle gated, revoked addresses can't re-enter) |
 | `Deploy.t.sol` | 5 | Deploy script wiring, roles, seed shares, end-to-end deposit |
 | `MockUSDC.t.sol` | 4 | Decimals, faucet |
 | `invariant/VaultInvariant.t.sol` | 4 invariants | See below |

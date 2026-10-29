@@ -19,14 +19,14 @@ export function ConnectButton() {
     return (
       <div className="flex flex-col items-end gap-1">
         <div className="flex flex-wrap gap-2">
-          {connectors.map((c) => (
+          {connectors.map((c, i) => (
             <Button
               key={c.uid}
               variant={c.type === "mock" ? "secondary" : "primary"}
               onClick={() => connect({ connector: c, chainId: c.type === "mock" ? foundry.id : undefined })}
               disabled={isPending}
             >
-              {c.type === "mock" ? "Anvil dev account" : "Connect wallet"}
+              {c.type === "mock" ? (i === 1 ? "Anvil admin" : "Anvil investor") : "Connect wallet"}
             </Button>
           ))}
         </div>

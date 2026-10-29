@@ -76,4 +76,72 @@ contract WhitelistTest is Test {
         whitelist.addToWhitelist(alice);
         assertTrue(whitelist.isWhitelisted(alice));
     }
+
+    // ---------------------------------------------------------------------
+    // Self-service demo KYC
+    // ---------------------------------------------------------------------
+
+    function test_SelfServiceOffByDefault() public {
+        assertFalse(whitelist.selfServiceEnabled());
+        vm.expectRevert("Self-service disabled");
+        vm.prank(alice);
+        whitelist.selfWhitelist();
+    }
+
+    function test_SelfWhitelistWhenEnabled() public {
+        whitelist.setSelfService(true);
+        vm.expectEmit(true, false, false, false, address(whitelist));
+        emit AddressWhitelisted(alice);
+        vm.prank(alice);
+        whitelist.selfWhitelist();
+        assertTrue(whitelist.isWhitelisted(alice));
+    }
+
+    function test_SelfWhitelistTwiceReverts() public {
+        whitelist.setSelfService(true);
+        vm.startPrank(alice);
+        whitelist.selfWhitelist();
+        vm.expectRevert("Address is already whitelisted");
+        whitelist.selfWhitelist();
+        vm.stopPrank();
+    }
+
+    // Compliance removal must stick: a revoked address can't self-service its way back.
+    function test_RevokedCannotSelfWhitelist() public {
+        whitelist.setSelfService(true);
+        vm.prank(alice);
+        whitelist.selfWhitelist();
+        whitelist.removeFromWhitelist(alice);
+        assertTrue(whitelist.isRevoked(alice));
+
+        vm.expectRevert("Address revoked by compliance");
+        vm.prank(alice);
+        whitelist.selfWhitelist();
+    }
+
+    function test_ComplianceReAdmitClearsRevocation() public {
+        whitelist.addToWhitelist(alice);
+        whitelist.removeFromWhitelist(alice);
+        whitelist.addToWhitelist(alice);
+        assertTrue(whitelist.isWhitelisted(alice));
+        assertFalse(whitelist.isRevoked(alice));
+    }
+
+    function test_DisablingSelfServiceBlocksNewSignups() public {
+        whitelist.setSelfService(true);
+        whitelist.setSelfService(false);
+        vm.expectRevert("Self-service disabled");
+        vm.prank(alice);
+        whitelist.selfWhitelist();
+    }
+
+    function test_OnlyComplianceCanToggleSelfService() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, whitelist.COMPLIANCE_ROLE()
+            )
+        );
+        vm.prank(alice);
+        whitelist.setSelfService(true);
+    }
 }

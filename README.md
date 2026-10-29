@@ -6,6 +6,21 @@ A learning/portfolio project exploring real-world asset (RWA) tokenization: frac
 
 > Educational demo for testnets only. mUSDC is play money and yield is simulated. Not a security, not investment advice.
 
+## Live deployment (Sepolia)
+
+| Contract | Address |
+|---|---|
+| Vault | [`0x059ceC26fF534Ea25A86eb77cE75918a25234757`](https://sepolia.etherscan.io/address/0x059ceC26fF534Ea25A86eb77cE75918a25234757#code) |
+| TBillToken (sgTBILL) | [`0x14826eAf480cFF4488F3cBDE9f312958d28Bb1fA`](https://sepolia.etherscan.io/address/0x14826eAf480cFF4488F3cBDE9f312958d28Bb1fA#code) |
+| Whitelist | [`0xB6dbA8e63Dc9004320D555E6924cB8296b0ADD24`](https://sepolia.etherscan.io/address/0xB6dbA8e63Dc9004320D555E6924cB8296b0ADD24#code) |
+| MockUSDC (mUSDC) | [`0x8706fd2b5a8AbB684A5640B7a11497509772b2A5`](https://sepolia.etherscan.io/address/0x8706fd2b5a8AbB684A5640B7a11497509772b2A5#code) |
+
+All four are source-verified on Etherscan.
+
+**Try it:** open the dApp with MetaMask on Sepolia. If the wallet has no Sepolia ETH, get some from the [Google Cloud faucet](https://cloud.google.com/application/web3/faucet/ethereum/sepolia). Then **Verify identity (demo KYC)** → **Get 1,000 test mUSDC** → **Deposit** → **Redeem**.
+
+Demo KYC is self-service: one transaction adds your address to the on-chain whitelist, standing in for an off-chain KYC provider. The compliance admin can switch it off, and an address the admin removes can't re-add itself.
+
 ## How it works
 
 ```
@@ -45,7 +60,7 @@ A learning/portfolio project exploring real-world asset (RWA) tokenization: frac
 Prerequisites: [Foundry](https://getfoundry.sh) and Node 20+.
 
 ```shell
-forge build && forge test          # 61 tests incl. fuzz + invariants
+forge build && forge test          # 68 tests incl. fuzz + invariants
 ```
 
 Run the whole stack on a local chain, using three terminals:
@@ -62,7 +77,7 @@ forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast \
 cd frontend && npm install && npm run dev     # http://localhost:3000
 ```
 
-In the dApp, click **Anvil dev account** (dev builds only) to act as the deployer without MetaMask. It's already whitelisted and holds every admin role. Then try: **Get 1,000 test mUSDC** → **Deposit** → **+1 year** (time travel, local chain only) → watch NAV reach 1.05 → **Redeem**.
+In the dApp, click **Anvil admin** (dev builds only) to act as the deployer without MetaMask; it's already whitelisted and holds every admin role. Click **Anvil investor** to act as a fresh, non-whitelisted user and try demo KYC. Then try: **Get 1,000 test mUSDC** → **Deposit** → **+1 year** (time travel, local chain only) → watch NAV reach 1.05 → **Redeem**.
 
 To use MetaMask on the local chain instead, add the network (RPC `http://127.0.0.1:8545`, chain ID 31337) and import one of the test keys anvil prints.
 
@@ -78,8 +93,10 @@ To use MetaMask on the local chain instead, add the network (RPC `http://127.0.0
 2. Deploy and verify:
    ```shell
    source .env
-   forge script script/Deploy.s.sol --rpc-url sepolia --account deployer --broadcast --verify
+   forge script script/Deploy.s.sol --rpc-url sepolia --account deployer --broadcast --verify \
+     --slow --gas-estimate-multiplier 900
    ```
+   **Why the multiplier?** Foundry estimates gas by simulating locally with the `cancun` ruleset, which solc 0.8.24 targets. Sepolia's current rules charge about 5× more for contract creation, so Foundry's default limits run out of gas and the creations revert. Replaying the deploy with `eth_simulateV1` on Sepolia showed the Vault needs about 6.7× Foundry's raw estimate. 900 (9×) leaves a 34% margin and keeps every transaction under the 16.7M per-transaction gas cap. `--slow` waits for each receipt, so a failure stops the run instead of sending the remaining transactions to empty addresses.
    This deploys and wires all four contracts, whitelists the deployer (plus any `WHITELIST=` addresses), locks the seed share, sets a 5% rate, and writes `frontend/src/deployments/11155111.json`.
 
 3. Point the dApp at it:
@@ -88,7 +105,7 @@ To use MetaMask on the local chain instead, add the network (RPC `http://127.0.0
    ```
    With a Sepolia deployment present, the dApp reads Sepolia by default. Commit the JSON.
 
-4. Host the frontend, for example on [Vercel](https://vercel.com): import the repo, set **Root Directory** to `frontend`, and optionally set `NEXT_PUBLIC_SEPOLIA_RPC_URL`.
+4. Host the frontend, for example on [Vercel](https://vercel.com): import the repo, set **Root Directory** to `frontend`, and add the environment variable `ETHERSCAN_API_KEY`. The server-side `/api/activity` route uses it to serve the full event history, because free RPC tiers cap log queries at 10–1,000 blocks. Without it, the activity feed shows only the last ~20 hours. `NEXT_PUBLIC_SEPOLIA_RPC_URL` is optional: reads already fall back across public endpoints.
 
 Visitors connect with MetaMask on Sepolia. To deposit, the deployer whitelists them in the dApp's **Admin → Compliance** panel. Anyone can use the mUSDC faucet.
 
