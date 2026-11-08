@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { BaseError, keccak256, toHex, zeroAddress } from "viem";
+import { BaseError, ContractFunctionRevertedError, keccak256, toHex, zeroAddress, type Abi } from "viem";
 import { useChainId, useConnection, usePublicClient, useReadContracts, useWriteContract } from "wagmi";
 import { deployments } from "@/deployments";
 import { mockUSDCAbi, tBillTokenAbi, vaultAbi, whitelistAbi } from "./abis";
@@ -128,6 +128,16 @@ export type TxState =
   | { status: "success"; label: string; hash: `0x${string}` }
   | { status: "error"; message: string };
 
+function errorMessage(e: unknown) {
+  if (!(e instanceof BaseError)) return e instanceof Error ? e.message : String(e);
+  // viem's short message omits custom error names, so surface the decoded one.
+  const reverted = e.walk((x) => x instanceof ContractFunctionRevertedError);
+  if (reverted instanceof ContractFunctionRevertedError && reverted.data?.errorName === "NotWhitelisted") {
+    return "Rejected by the contract: this address is not whitelisted (NotWhitelisted).";
+  }
+  return e.shortMessage;
+}
+
 /**
  * Sends one or more transactions in order (e.g. approve → deposit), waiting for each
  * receipt before the next, then refreshes every on-chain read.
@@ -142,7 +152,11 @@ export function useTx() {
   // Dry-run every write first: a revert surfaces as the decoded reason ("zero deposit",
   // NotWhitelisted(...), AccessControl...) instead of a mined, gas-burning failed tx.
   const simulateThenWrite = (async (request: Parameters<Write>[0]) => {
-    await client!.simulateContract({ ...request, account: address } as Parameters<typeof client.simulateContract>[0]);
+    // Vault calls can revert inside TBillToken, so include its custom errors for decoding.
+    const abi = [...(request.abi as Abi), ...tBillTokenAbi.filter((x) => x.type === "error")];
+    await client!.simulateContract({ ...request, abi, account: address } as Parameters<
+      typeof client.simulateContract
+    >[0]);
     return writeContractAsync(request);
   }) as Write;
 
@@ -162,8 +176,7 @@ export function useTx() {
       await queryClient.invalidateQueries();
       return true;
     } catch (e) {
-      const message = e instanceof BaseError ? e.shortMessage : e instanceof Error ? e.message : String(e);
-      setState({ status: "error", message });
+      setState({ status: "error", message: errorMessage(e) });
       return false;
     }
   }
