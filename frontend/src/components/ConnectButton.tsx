@@ -15,18 +15,33 @@ export function ConnectButton() {
 
   const supported = chains.filter((c) => deployments[c.id]);
 
+  // wagmi lists a generic "injected" connector plus one per wallet the browser announces
+  // (EIP-6963, e.g. MetaMask). They are the same wallet, so show the named one and keep
+  // the generic button only as a fallback for wallets that don't announce themselves.
+  const named = connectors.filter((c) => c.type === "injected" && c.id !== "injected");
+  const mocks = connectors.filter((c) => c.type === "mock");
+  const shown = connectors.filter((c) => !(c.id === "injected" && named.length > 0));
+  const label = (c: (typeof connectors)[number]) =>
+    c.type === "mock"
+      ? mocks.findIndex((m) => m.uid === c.uid) === 0
+        ? "Anvil admin"
+        : "Anvil investor"
+      : c.id === "injected"
+        ? "Connect wallet"
+        : `Connect ${c.name}`;
+
   if (!isConnected) {
     return (
       <div className="flex flex-col items-end gap-1">
         <div className="flex flex-wrap gap-2">
-          {connectors.map((c, i) => (
+          {shown.map((c) => (
             <Button
               key={c.uid}
               variant={c.type === "mock" ? "secondary" : "primary"}
               onClick={() => connect({ connector: c, chainId: c.type === "mock" ? foundry.id : undefined })}
               disabled={isPending}
             >
-              {c.type === "mock" ? (i === 1 ? "Anvil admin" : "Anvil investor") : "Connect wallet"}
+              {label(c)}
             </Button>
           ))}
         </div>
